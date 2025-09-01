@@ -2,232 +2,190 @@
 <html lang="pl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>🤖 Multi-AI Chat</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white p-6">
-  <div class="max-w-5xl mx-auto flex gap-4">
-    <!-- Lista czatów -->
-    <div class="w-1/4 bg-gray-900 rounded-xl p-4 flex flex-col">
-      <h2 class="text-lg font-bold mb-2">💬 Twoje czaty</h2>
-      <div id="chatList" class="flex-1 overflow-y-auto space-y-2"></div>
-      <button id="newChatBtn" class="mt-4 p-2 bg-blue-600 rounded-lg w-full">➕ Nowy czat</button>
+  <div class="max-w-4xl mx-auto space-y-4">
+    <h1 class="text-3xl font-bold text-center">🤖 Multi-AI Chat</h1>
+
+    <!-- Nowy / wybór czatu -->
+    <div class="flex gap-2">
+      <select id="chatSelector" class="flex-1 p-2 rounded bg-gray-700"></select>
+      <button onclick="newChat()" class="px-4 py-2 bg-green-600 rounded">➕ Nowy czat</button>
+    </div>
+
+    <!-- Model -->
+    <select id="modelSelect" class="w-full p-2 rounded bg-gray-700"></select>
+
+    <!-- API Key -->
+    <div class="flex gap-2">
+      <input id="apiKeyInput" type="password" class="flex-1 p-2 rounded bg-gray-700" placeholder="Wpisz klucz API"/>
+      <button onclick="saveKey()" class="px-4 py-2 bg-blue-600 rounded">💾 Zapisz klucz</button>
     </div>
 
     <!-- Okno czatu -->
-    <div class="flex-1 bg-gray-900 rounded-xl p-6 flex flex-col">
-      <h1 class="text-2xl font-bold text-center mb-4">🤖 Multi-AI Chat</h1>
+    <div id="chatWindow" class="h-96 overflow-y-auto bg-gray-900 p-4 rounded space-y-2"></div>
 
-      <!-- Wybór modelu -->
-      <select id="modelSelect" class="w-full p-2 rounded bg-gray-700 mb-2"></select>
-
-      <!-- Pole na API key -->
-      <div class="flex gap-2 mb-4">
-        <input id="apiKeyInput" type="password" class="flex-1 p-2 rounded bg-gray-700"
-          placeholder="🔑 Wpisz klucz API" />
-        <button id="saveKeyBtn" class="px-4 bg-green-600 rounded-lg">💾</button>
-      </div>
-
-      <!-- Historia czatu -->
-      <div id="chatBox" class="flex-1 overflow-y-auto bg-gray-800 p-4 rounded space-y-2 mb-4"></div>
-
-      <!-- Input do wysyłania -->
-      <div class="flex gap-2">
-        <input id="messageInput" class="flex-1 p-2 rounded bg-gray-700"
-          placeholder="✍️ Napisz wiadomość..." />
-        <button id="sendBtn" class="px-4 bg-blue-600 rounded-lg">📩</button>
-      </div>
+    <!-- Input -->
+    <div class="flex gap-2">
+      <input id="messageInput" class="flex-1 p-2 rounded bg-gray-700" placeholder="Napisz wiadomość..."/>
+      <button onclick="sendMessage()" class="px-4 py-2 bg-purple-600 rounded">📩 Wyślij</button>
     </div>
   </div>
 
-<script>
-const MODELS = {
-  "gpt-4": {
-    label: "ChatGPT 4",
-    apiUrl: "https://api.openai.com/v1/chat/completions",
-    provider: "openai",
-  },
-  "gpt-3.5-turbo": {
-    label: "ChatGPT 3.5",
-    apiUrl: "https://api.openai.com/v1/chat/completions",
-    provider: "openai",
-  },
-  "gemini-pro": {
-    label: "Gemini Pro",
-    apiUrl: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
-    provider: "google",
-  },
-  "claude-3": {
-    label: "Claude 3",
-    apiUrl: "https://api.anthropic.com/v1/messages",
-    provider: "anthropic",
-  },
-  "llama-2": {
-    label: "LLaMA 2",
-    apiUrl: "https://api.llama.meta/v1/chat",
-    provider: "meta",
-  },
-};
+  <script>
+    const MODELS = {
+      "gpt-4": { label: "ChatGPT 4", apiUrl: "https://api.openai.com/v1/chat/completions", provider: "openai" },
+      "gpt-3.5-turbo": { label: "ChatGPT 3.5", apiUrl: "https://api.openai.com/v1/chat/completions", provider: "openai" },
+      "gemini-pro": { label: "Gemini Pro", apiUrl: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent", provider: "google" },
+      "claude-3": { label: "Claude 3", apiUrl: "https://api.anthropic.com/v1/messages", provider: "anthropic" },
+      "llama-2": { label: "LLaMA 2", apiUrl: "https://api.llama.meta/v1/chat", provider: "meta" },
+    };
 
-// --- GLOBAL STATE ---
-let chats = JSON.parse(localStorage.getItem("chats") || "[]");
-let currentChatId = null;
-let apiKeys = JSON.parse(localStorage.getItem("apiKeys") || "{}");
+    let chats = JSON.parse(localStorage.getItem("chats") || "[]");
+    let currentChatId = null;
 
-// --- UI ELEMENTS ---
-const chatList = document.getElementById("chatList");
-const chatBox = document.getElementById("chatBox");
-const messageInput = document.getElementById("messageInput");
-const sendBtn = document.getElementById("sendBtn");
-const newChatBtn = document.getElementById("newChatBtn");
-const modelSelect = document.getElementById("modelSelect");
-const apiKeyInput = document.getElementById("apiKeyInput");
-const saveKeyBtn = document.getElementById("saveKeyBtn");
+    const chatSelector = document.getElementById("chatSelector");
+    const chatWindow = document.getElementById("chatWindow");
+    const modelSelect = document.getElementById("modelSelect");
+    const messageInput = document.getElementById("messageInput");
+    const apiKeyInput = document.getElementById("apiKeyInput");
 
-// --- FUNKCJE ---
-function saveChats() {
-  localStorage.setItem("chats", JSON.stringify(chats));
-}
+    // Inicjalizacja modelów
+    for (let [key, m] of Object.entries(MODELS)) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = m.label;
+      modelSelect.appendChild(opt);
+    }
 
-function renderChats() {
-  chatList.innerHTML = "";
-  chats.forEach(chat => {
-    const btn = document.createElement("button");
-    btn.className = `block w-full text-left p-2 rounded ${chat.id === currentChatId ? "bg-blue-600" : "bg-gray-700"}`;
-    btn.textContent = chat.title || "Nowy czat";
-    btn.onclick = () => loadChat(chat.id);
-    chatList.appendChild(btn);
-  });
-}
-
-function renderMessages() {
-  const chat = chats.find(c => c.id === currentChatId);
-  if (!chat) return;
-  chatBox.innerHTML = "";
-  chat.messages.forEach(m => {
-    const div = document.createElement("div");
-    div.className = `p-2 rounded-lg max-w-[75%] mb-1 ${m.role === "user" ? "bg-blue-600 ml-auto" : "bg-gray-700"}`;
-    div.textContent = m.content;
-    chatBox.appendChild(div);
-  });
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-function newChat() {
-  const id = Date.now().toString();
-  chats.push({ id, title: "Nowy czat", model: "gpt-4", messages: [] });
-  currentChatId = id;
-  saveChats();
-  renderChats();
-  renderMessages();
-}
-
-function loadChat(id) {
-  currentChatId = id;
-  const chat = chats.find(c => c.id === id);
-  modelSelect.value = chat.model;
-  renderChats();
-  renderMessages();
-  apiKeyInput.value = apiKeys[MODELS[chat.model].provider] || "";
-}
-
-async function sendMessage() {
-  const chat = chats.find(c => c.id === currentChatId);
-  if (!chat) return;
-
-  const input = messageInput.value.trim();
-  if (!input) return;
-  const model = modelSelect.value;
-  chat.model = model;
-  messageInput.value = "";
-
-  const provider = MODELS[model].provider;
-  const apiKey = apiKeys[provider];
-  if (!apiKey) {
-    alert("❌ Podaj klucz API dla: " + MODELS[model].label);
-    return;
-  }
-
-  // dodaj wiadomość użytkownika
-  chat.messages.push({ role: "user", content: input });
-  renderMessages();
-  saveChats();
-
-  try {
-    let body, headers = { "Content-Type": "application/json" };
-    const { apiUrl } = MODELS[model];
-
-    if (provider === "openai") {
-      headers["Authorization"] = `Bearer ${apiKey}`;
-      body = JSON.stringify({ model, messages: chat.messages });
-    } else if (provider === "google") {
-      body = JSON.stringify({ contents: [{ parts: [{ text: input }] }] });
-    } else if (provider === "anthropic") {
-      headers["x-api-key"] = apiKey;
-      body = JSON.stringify({
-        model,
-        max_tokens: 512,
-        messages: chat.messages.map(m => ({ role: m.role, content: m.content }))
+    function renderChatList() {
+      chatSelector.innerHTML = "";
+      chats.forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = c.name;
+        chatSelector.appendChild(opt);
       });
-    } else if (provider === "meta") {
-      headers["Authorization"] = `Bearer ${apiKey}`;
-      body = JSON.stringify({ messages: chat.messages });
+      if (currentChatId) chatSelector.value = currentChatId;
     }
 
-    const res = await fetch(
-      provider === "google" ? `${apiUrl}?key=${apiKey}` : apiUrl,
-      { method: "POST", headers, body }
-    );
-
-    const data = await res.json();
-    console.log("🔍 Odpowiedź API:", data);
-    let reply = "(Brak odpowiedzi)";
-
-    if (provider === "openai") {
-      reply = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || reply;
-    } else if (provider === "google") {
-      reply = data.candidates?.[0]?.content?.parts?.[0]?.text || data.candidates?.[0]?.output || reply;
-    } else if (provider === "anthropic") {
-      reply = data.content?.[0]?.text || data.output_text || reply;
-    } else if (provider === "meta") {
-      reply = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || reply;
+    function renderMessages() {
+      chatWindow.innerHTML = "";
+      const chat = chats.find(c => c.id === currentChatId);
+      if (!chat) return;
+      chat.messages.forEach(m => {
+        const div = document.createElement("div");
+        div.className = `p-2 rounded-lg max-w-[75%] whitespace-pre-wrap ${m.role==="user" ? "bg-blue-600 ml-auto" : (m.role==="assistant" ? "bg-gray-700" : "bg-yellow-700")}`;
+        div.textContent = m.content;
+        chatWindow.appendChild(div);
+      });
+      chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
-    chat.messages.push({ role: "assistant", content: reply });
-    renderMessages();
-    saveChats();
-  } catch (err) {
-    console.error(err);
-    alert("⚠️ Błąd połączenia z API");
-  }
-}
+    function saveChats() {
+      localStorage.setItem("chats", JSON.stringify(chats));
+    }
 
-// --- LISTENERY ---
-newChatBtn.onclick = newChat;
-sendBtn.onclick = sendMessage;
-messageInput.addEventListener("keydown", e => {
-  if (e.key === "Enter") sendMessage();
-});
-saveKeyBtn.onclick = () => {
-  const model = modelSelect.value;
-  const provider = MODELS[model].provider;
-  apiKeys[provider] = apiKeyInput.value;
-  localStorage.setItem("apiKeys", JSON.stringify(apiKeys));
-  alert("✅ Zapisano klucz dla " + provider);
-};
+    function newChat() {
+      const id = Date.now().toString();
+      chats.push({ id, name: "Czat " + (chats.length+1), model: "gpt-4", messages: [] });
+      currentChatId = id;
+      saveChats();
+      renderChatList();
+      renderMessages();
+    }
 
-// --- INIT ---
-Object.entries(MODELS).forEach(([key, m]) => {
-  const opt = document.createElement("option");
-  opt.value = key;
-  opt.textContent = m.label;
-  modelSelect.appendChild(opt);
-});
+    chatSelector.addEventListener("change", () => {
+      currentChatId = chatSelector.value;
+      renderMessages();
+    });
 
-if (chats.length === 0) newChat();
-else loadChat(chats[0].id);
+    function saveKey() {
+      const model = modelSelect.value;
+      localStorage.setItem("apiKey_" + MODELS[model].provider, apiKeyInput.value);
+      alert("✅ Klucz zapisany dla " + MODELS[model].label);
+    }
 
-</script>
+    async function sendMessage() {
+      const chat = chats.find(c => c.id === currentChatId);
+      if (!chat) return;
+
+      const model = modelSelect.value;
+      const { apiUrl, provider } = MODELS[model];
+      const apiKey = localStorage.getItem("apiKey_" + provider);
+      if (!apiKey) {
+        alert("❌ Podaj klucz API dla " + MODELS[model].label);
+        return;
+      }
+
+      const input = messageInput.value.trim();
+      if (!input) return;
+      chat.messages.push({ role: "user", content: input });
+      messageInput.value = "";
+      renderMessages();
+
+      try {
+        let body;
+        let headers = { "Content-Type": "application/json" };
+
+        if (provider === "openai") {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+          body = JSON.stringify({ model, messages: chat.messages });
+        } else if (provider === "google") {
+          body = JSON.stringify({ contents: [{ parts: [{ text: input }] }] });
+        } else if (provider === "anthropic") {
+          headers["x-api-key"] = apiKey;
+          body = JSON.stringify({
+            model: model,
+            max_tokens: 512,
+            messages: chat.messages.map(m => ({ role: m.role, content: m.content }))
+          });
+        } else if (provider === "meta") {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+          body = JSON.stringify({ messages: chat.messages });
+        }
+
+        const res = await fetch(provider === "google" ? `${apiUrl}?key=${apiKey}` : apiUrl, {
+          method: "POST", headers, body
+        });
+
+        const data = await res.json();
+        console.log("🔍 Odpowiedź API:", data);
+
+        // Debug message w czacie
+        chat.messages.push({ role: "system", content: "📦 DEBUG: " + JSON.stringify(data, null, 2) });
+
+        let reply = "(Brak odpowiedzi)";
+        if (provider === "openai") {
+          reply = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || reply;
+        } else if (provider === "google") {
+          reply = data.candidates?.[0]?.content?.parts?.[0]?.text || data.candidates?.[0]?.output || reply;
+        } else if (provider === "anthropic") {
+          reply = data.content?.[0]?.text || data.output_text || reply;
+        } else if (provider === "meta") {
+          reply = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || reply;
+        }
+
+        chat.messages.push({ role: "assistant", content: reply });
+        saveChats();
+        renderMessages();
+      } catch (err) {
+        console.error(err);
+        chat.messages.push({ role: "system", content: "⚠️ Błąd połączenia z API" });
+        renderMessages();
+      }
+    }
+
+    // Start
+    if (chats.length === 0) newChat();
+    else {
+      currentChatId = chats[0].id;
+      renderChatList();
+      renderMessages();
+    }
+  </script>
 </body>
 </html>
