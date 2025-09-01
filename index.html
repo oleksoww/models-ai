@@ -1,441 +1,130 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🤖 Multi-AI Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white p-6">
+  <div class="max-w-2xl mx-auto shadow-2xl rounded-2xl bg-gray-950">
+    <div class="p-6 space-y-4">
+      <h1 class="text-2xl font-bold text-center">🤖 Multi-AI Chat</h1>
 
-/**
- * Multi‑Provider AI Chat UI (pure React + TailwindCSS)
- * - Works on static hosting (GitHub Pages)
- * - Supports multiple providers: OpenAI, Google (Gemini), Anthropic, Groq (Llama 3), Mistral
- * - User supplies their own API key per provider (stored in localStorage)
- * - Fancy, responsive chat UI
- *
- * Notes:
- * • Exposing API keys in the browser is risky. Use read‑only keys/quotas.
- * • Some providers may enforce CORS or domain allowlists. This UI calls APIs directly from the browser.
- * • For Gemini, the key goes in the URL query. For Anthropic, use x-api-key + anthropic-version.
- * • For Groq and Mistral, the payload is OpenAI‑compatible.
- */
+      <!-- Wybór modelu -->
+      <select id="modelSelect" class="w-full p-2 rounded bg-gray-700"></select>
 
-// ---------- Model Registry ----------
-const MODEL_REGISTRY = {
-  openai: {
-    label: "OpenAI",
-    apiBase: "https://api.openai.com/v1",
-    models: [
-      { id: "gpt-4o", label: "GPT‑4o" },
-      { id: "gpt-4o-mini", label: "GPT‑4o mini" },
-      { id: "gpt-3.5-turbo", label: "GPT‑3.5 Turbo" },
-    ],
-  },
-  google: {
-    label: "Google Gemini",
-    apiBase: "https://generativelanguage.googleapis.com/v1beta",
-    models: [
-      { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
-      { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
-    ],
-  },
-  anthropic: {
-    label: "Anthropic Claude",
-    apiBase: "https://api.anthropic.com/v1",
-    models: [
-      { id: "claude-3-5-sonnet-20240620", label: "Claude 3.5 Sonnet" },
-      { id: "claude-3-opus-20240229", label: "Claude 3 Opus" },
-      { id: "claude-3-haiku-20240307", label: "Claude 3 Haiku" },
-    ],
-  },
-  groq: {
-    label: "Groq (Llama 3, Mixtral)",
-    apiBase: "https://api.groq.com/openai/v1", // OpenAI‑compatible
-    models: [
-      { id: "llama-3.1-70b-versatile", label: "Llama 3.1 70B" },
-      { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B" },
-      { id: "mixtral-8x7b-32768", label: "Mixtral 8x7B" },
-    ],
-  },
-  mistral: {
-    label: "Mistral AI",
-    apiBase: "https://api.mistral.ai/v1",
-    models: [
-      { id: "mistral-large-latest", label: "Mistral Large" },
-      { id: "open-mixtral-8x7b", label: "Open Mixtral 8x7B" },
-      { id: "open-mistral-7b", label: "Open Mistral 7B" },
-    ],
-  },
-};
+      <!-- Pole na API Key -->
+      <input id="apiKey" type="password" class="w-full p-2 rounded bg-gray-700" placeholder="Wpisz klucz API" />
+      <button id="saveKey" class="w-full p-2 rounded bg-blue-600 hover:bg-blue-500">💾 Zapisz klucz</button>
 
-// ---------- Helpers ----------
-const LS_KEYS = {
-  theme: "ai_chat_theme",
-  keys: "ai_chat_api_keys_v1", // object per provider
-  provider: "ai_chat_provider",
-  model: "ai_chat_model",
-};
+      <!-- Okno czatu -->
+      <div id="chatWindow" class="h-80 overflow-y-auto bg-gray-900 p-4 rounded space-y-2"></div>
 
-function loadKeys() {
-  try {
-    const raw = localStorage.getItem(LS_KEYS.keys);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-function saveKeys(obj) {
-  localStorage.setItem(LS_KEYS.keys, JSON.stringify(obj));
-}
+      <!-- Input do wiadomości -->
+      <div class="flex gap-2">
+        <input id="userInput" class="flex-1 p-2 rounded bg-gray-700" placeholder="Napisz wiadomość..." />
+        <button id="sendBtn" class="p-2 rounded bg-green-600 hover:bg-green-500">📩 Wyślij</button>
+      </div>
+    </div>
+  </div>
 
-function classNames(...arr) {
-  return arr.filter(Boolean).join(" ");
-}
+  <script>
+    const MODELS = {
+      "gpt-4": { label: "ChatGPT 4", apiUrl: "https://api.openai.com/v1/chat/completions", provider: "openai" },
+      "gpt-3.5-turbo": { label: "ChatGPT 3.5", apiUrl: "https://api.openai.com/v1/chat/completions", provider: "openai" },
+      "gemini-pro": { label: "Gemini Pro", apiUrl: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent", provider: "google" },
+      "claude-3": { label: "Claude 3", apiUrl: "https://api.anthropic.com/v1/messages", provider: "anthropic" },
+      "llama-2": { label: "LLaMA 2", apiUrl: "https://api.llama.meta/v1/chat", provider: "meta" },
+    };
 
-// ---------- Provider Clients (simple non‑streaming) ----------
-async function callOpenAI({ apiKey, apiBase, model, messages, system }) {
-  const body = {
-    model,
-    messages: [
-      ...(system ? [{ role: "system", content: system }] : []),
-      ...messages,
-    ],
-    temperature: 0.7,
-  };
-  const res = await fetch(`${apiBase}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
-}
+    const modelSelect = document.getElementById("modelSelect");
+    const apiKeyInput = document.getElementById("apiKey");
+    const chatWindow = document.getElementById("chatWindow");
+    const userInput = document.getElementById("userInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const saveKeyBtn = document.getElementById("saveKey");
 
-// Gemini: messages -> contents[] with role mapping
-function toGeminiContents({ messages, system }) {
-  const contents = [];
-  if (system) {
-    contents.push({ role: "user", parts: [{ text: `SYSTEM:\n${system}` }] });
-    contents.push({ role: "model", parts: [{ text: "OK" }] });
-  }
-  for (const m of messages) {
-    contents.push({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] });
-  }
-  return contents;
-}
-async function callGemini({ apiKey, apiBase, model, messages, system }) {
-  const url = `${apiBase}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const body = { contents: toGeminiContents({ messages, system }) };
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.map(p => p.text).join("") ?? "";
-}
-
-// Anthropic: requires anthropic-version header and different message shape
-function toAnthropicMessages({ messages }) {
-  // Anthropic expects only user/assistant, user starts
-  const out = [];
-  let buffer = [];
-  let expecting = "user";
-  for (const m of messages) {
-    const role = m.role === "assistant" ? "assistant" : "user";
-    if (role !== expecting) {
-      // flush previous turn
-      if (buffer.length) out.push({ role: expecting, content: [{ type: "text", text: buffer.join("\n\n") }] });
-      buffer = [];
-      expecting = role;
+    // Załaduj modele do selecta
+    for (const [key, m] of Object.entries(MODELS)) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = m.label;
+      modelSelect.appendChild(opt);
     }
-    buffer.push(m.content);
-  }
-  if (buffer.length) out.push({ role: expecting, content: [{ type: "text", text: buffer.join("\n\n") }] });
-  // Ensure it starts with a user turn
-  if (out[0]?.role !== "user") {
-    out.unshift({ role: "user", content: [{ type: "text", text: "Hello" }] });
-  }
-  return out;
-}
-async function callAnthropic({ apiKey, apiBase, model, messages, system }) {
-  const body = {
-    model,
-    max_tokens: 1024,
-    messages: toAnthropicMessages({ messages }),
-    ...(system ? { system } : {}),
-  };
-  const res = await fetch(`${apiBase}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.content?.map(p => p.text).join("") ?? "";
-}
+    modelSelect.value = "gpt-4";
 
-// Groq & Mistral (OpenAI‑compatible chat/completions)
-async function callOpenAICompatible({ apiKey, apiBase, model, messages, system }) {
-  const body = {
-    model,
-    messages: [
-      ...(system ? [{ role: "system", content: system }] : []),
-      ...messages,
-    ],
-    temperature: 0.7,
-  };
-  const url = apiBase.includes("/openai/") ? `${apiBase}/chat/completions` : `${apiBase}/chat/completions`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
-}
-
-async function callProvider({ provider, model, apiKey, messages, system }) {
-  const cfg = MODEL_REGISTRY[provider];
-  if (!cfg) throw new Error("Nieznany provider");
-  const common = { apiKey, apiBase: cfg.apiBase, model, messages, system };
-  if (provider === "openai") return callOpenAI(common);
-  if (provider === "google") return callGemini(common);
-  if (provider === "anthropic") return callAnthropic(common);
-  if (provider === "groq" || provider === "mistral") return callOpenAICompatible(common);
-  throw new Error("Provider bez implementacji");
-}
-
-// ---------- UI Components ----------
-function Header({ theme, setTheme }) {
-  return (
-    <div className="flex items-center justify-between py-4">
-      <h1 className="text-2xl font-bold">🤖 Multi‑Model AI Chat</h1>
-      <div className="flex items-center gap-2">
-        <button
-          className="px-3 py-1 rounded-xl border border-zinc-600 hover:bg-zinc-800"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          {theme === "dark" ? "☀️ Jasny" : "🌙 Ciemny"}
-        </button>
-        <a
-          className="px-3 py-1 rounded-xl border border-zinc-600 hover:bg-zinc-800"
-          href="#" onClick={(e)=>{e.preventDefault(); window.location.reload();}}
-        >
-          🔄 Restart
-        </a>
-      </div>
-    </div>
-  );
-}
-
-function ModelPicker({ provider, setProvider, model, setModel }) {
-  return (
-    <div className="grid md:grid-cols-2 gap-3">
-      <div className="flex flex-col gap-2">
-        <label className="text-sm text-zinc-400">Dostawca</label>
-        <select
-          className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-        >
-          {Object.entries(MODEL_REGISTRY).map(([key, cfg]) => (
-            <option key={key} value={key}>{cfg.label}</option>
-          ))}
-        </select>
-      </div>
-      <div className="flex flex-col gap-2">
-        <label className="text-sm text-zinc-400">Model</label>
-        <select
-          className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-        >
-          {MODEL_REGISTRY[provider].models.map((m) => (
-            <option key={m.id} value={m.id}>{m.label}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
-
-function KeyManager({ provider, keys, setKeys }) {
-  const [value, setValue] = useState(keys[provider] || "");
-  useEffect(() => setValue(keys[provider] || ""), [provider, keys]);
-  const providerLabel = MODEL_REGISTRY[provider].label;
-
-  return (
-    <div className="grid md:grid-cols-[1fr_auto] gap-3 items-end">
-      <div className="flex flex-col gap-2">
-        <label className="text-sm text-zinc-400">API Key — {providerLabel}</label>
-        <input
-          type="password"
-          placeholder={`Wklej klucz dla ${providerLabel}`}
-          className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
-        <p className="text-xs text-zinc-500">Klucz jest zapisywany lokalnie w Twojej przeglądarce (localStorage).</p>
-      </div>
-      <div className="flex gap-2">
-        <button
-          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500"
-          onClick={() => { const next = { ...keys, [provider]: value }; setKeys(next); saveKeys(next); }}
-        >💾 Zapisz</button>
-        <button
-          className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700"
-          onClick={() => { const next = { ...keys }; delete next[provider]; setKeys(next); saveKeys(next); setValue(""); }}
-        >🗑️ Usuń</button>
-      </div>
-    </div>
-  );
-}
-
-function ChatBubble({ role, content }) {
-  const isUser = role === "user";
-  return (
-    <div className={classNames("max-w-[85%] rounded-2xl px-4 py-3 whitespace-pre-wrap", isUser ? "bg-blue-600 ml-auto" : "bg-zinc-800 mr-auto")}>{content}</div>
-  );
-}
-
-export default function App() {
-  // Theme
-  const [theme, setTheme] = useState(() => localStorage.getItem(LS_KEYS.theme) || "dark");
-  useEffect(() => { localStorage.setItem(LS_KEYS.theme, theme); document.documentElement.classList.toggle("dark", theme === "dark"); }, [theme]);
-
-  // Provider & model
-  const [provider, setProvider] = useState(() => localStorage.getItem(LS_KEYS.provider) || "openai");
-  const [model, setModel] = useState(() => localStorage.getItem(LS_KEYS.model) || MODEL_REGISTRY["openai"].models[0].id);
-  useEffect(() => { localStorage.setItem(LS_KEYS.provider, provider); const first = MODEL_REGISTRY[provider].models[0].id; if (!MODEL_REGISTRY[provider].models.find(m=>m.id===model)) setModel(first); }, [provider]);
-  useEffect(() => { localStorage.setItem(LS_KEYS.model, model); }, [model]);
-
-  // Keys
-  const [keys, setKeys] = useState(() => loadKeys());
-
-  // Chat state
-  const [systemPrompt, setSystemPrompt] = useState("Jesteś pomocnym asystentem.");
-  const [messages, setMessages] = useState([]); // {role: 'user'|'assistant', content}
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const listRef = useRef(null);
-
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
-
-  const currentKey = keys[provider] || "";
-  const providerLabel = MODEL_REGISTRY[provider].label;
-
-  async function send() {
-    if (loading) return;
-    if (!input.trim()) return;
-    if (!currentKey) {
-      alert(`Podaj klucz API dla: ${providerLabel}`);
-      return;
+    function getSavedKey(model) {
+      return localStorage.getItem(`apiKey_${model}`) || "";
     }
-    const nextMessages = [...messages, { role: "user", content: input }];
-    setMessages(nextMessages);
-    setInput("");
-    setLoading(true);
-    try {
-      const reply = await callProvider({ provider, model, apiKey: currentKey, messages: nextMessages, system: systemPrompt });
-      setMessages([...nextMessages, { role: "assistant", content: reply }]);
-    } catch (err) {
-      console.error(err);
-      setMessages([...nextMessages, { role: "assistant", content: `⚠️ Błąd: ${err.message || err}` }]);
-    } finally {
-      setLoading(false);
+
+    apiKeyInput.value = getSavedKey(modelSelect.value);
+
+    saveKeyBtn.onclick = () => {
+      localStorage.setItem(`apiKey_${modelSelect.value}`, apiKeyInput.value);
+      alert("✅ Klucz zapisany dla " + MODELS[modelSelect.value].label);
+    };
+
+    async function sendMessage() {
+      const model = modelSelect.value;
+      const apiKey = apiKeyInput.value;
+      const input = userInput.value.trim();
+      if (!apiKey) {
+        alert("❌ Podaj swój klucz API dla " + MODELS[model].label);
+        return;
+      }
+      if (!input) return;
+
+      addMessage("user", input);
+      userInput.value = "";
+
+      try {
+        let body;
+        let headers = { "Content-Type": "application/json" };
+        const { apiUrl, provider } = MODELS[model];
+
+        if (provider === "openai") {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+          body = JSON.stringify({ model, messages: [{ role: "user", content: input }] });
+        } else if (provider === "google") {
+          body = JSON.stringify({ contents: [{ parts: [{ text: input }] }] });
+        } else if (provider === "anthropic") {
+          headers["x-api-key"] = apiKey;
+          body = JSON.stringify({ model, max_tokens: 512, messages: [{ role: "user", content: input }] });
+        } else if (provider === "meta") {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+          body = JSON.stringify({ messages: [{ role: "user", content: input }] });
+        }
+
+        const res = await fetch(provider === "google" ? `${apiUrl}?key=${apiKey}` : apiUrl, { method: "POST", headers, body });
+        const data = await res.json();
+        let reply = "(Brak odpowiedzi)";
+
+        if (provider === "openai") reply = data.choices?.[0]?.message?.content || reply;
+        if (provider === "google") reply = data.candidates?.[0]?.content?.parts?.[0]?.text || reply;
+        if (provider === "anthropic") reply = data.content?.[0]?.text || reply;
+        if (provider === "meta") reply = data.choices?.[0]?.message?.content || reply;
+
+        addMessage("assistant", reply);
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Błąd połączenia z API");
+      }
     }
-  }
 
-  function clearChat() {
-    if (confirm("Wyczyścić rozmowę?")) setMessages([]);
-  }
+    function addMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = `p-2 rounded-lg max-w-[75%] ${role === "user" ? "bg-blue-600 ml-auto" : "bg-gray-700"}`;
+      div.textContent = text;
+      chatWindow.appendChild(div);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
 
-  function exportChat() {
-    const blob = new Blob([JSON.stringify({ provider, model, systemPrompt, messages }, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `chat_${provider}_${model}.json`; a.click(); URL.revokeObjectURL(url);
-  }
-
-  return (
-    <div className={classNames("min-h-screen p-6", theme === "dark" ? "bg-gradient-to-br from-zinc-950 to-zinc-900 text-zinc-50" : "bg-zinc-50 text-zinc-900") }>
-      <div className="max-w-4xl mx-auto">
-        <Header theme={theme} setTheme={setTheme} />
-
-        {/* Card */}
-        <div className={classNames("rounded-3xl p-5 shadow-xl border", theme === "dark" ? "bg-zinc-950/60 border-zinc-800" : "bg-white border-zinc-200") }>
-          <div className="grid gap-6">
-            <ModelPicker provider={provider} setProvider={setProvider} model={model} setModel={setModel} />
-            <KeyManager provider={provider} keys={keys} setKeys={setKeys} />
-
-            {/* System prompt */}
-            <div className="flex flex-col gap-2">
-              <label className="text-sm text-zinc-400">System prompt (opcjonalnie)</label>
-              <textarea
-                className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 min-h-[72px]"
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-              />
-            </div>
-
-            {/* Chat window */}
-            <div ref={listRef} className={classNames("h-[420px] overflow-y-auto rounded-2xl p-4 space-y-3 border", theme === "dark" ? "bg-zinc-950/40 border-zinc-800" : "bg-zinc-100 border-zinc-200") }>
-              {messages.length === 0 && (
-                <div className="text-center text-zinc-500 pt-24">
-                  Zacznij rozmowę — wybierz model i wpisz wiadomość poniżej ✨
-                </div>
-              )}
-              {messages.map((m, i) => (
-                <ChatBubble key={i} role={m.role} content={m.content} />
-              ))}
-              {loading && <div className="text-sm text-zinc-500">Model pisze…</div>}
-            </div>
-
-            {/* Input row */}
-            <div className="flex gap-2">
-              <input
-                className={classNames("flex-1 rounded-2xl px-4 py-3 border", theme === "dark" ? "bg-zinc-900 border-zinc-700" : "bg-white border-zinc-300") }
-                placeholder={`Wiadomość do ${providerLabel} (${model})…`}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
-              />
-              <button
-                onClick={send}
-                className="px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
-                disabled={loading}
-              >📤 Wyślij</button>
-            </div>
-
-            {/* Toolbar */}
-            <div className="flex flex-wrap gap-2 justify-end">
-              <button onClick={clearChat} className="px-3 py-2 rounded-xl border border-zinc-700 hover:bg-zinc-800">🧹 Wyczyść</button>
-              <button onClick={exportChat} className="px-3 py-2 rounded-xl border border-zinc-700 hover:bg-zinc-800">⬇️ Eksport JSON</button>
-            </div>
-
-            {/* Helpful info */}
-            <div className="text-xs text-zinc-500 leading-relaxed">
-              <p>🔐 Klucze API są trzymane wyłącznie w Twojej przeglądarce (localStorage). Nie wysyłamy ich nigdzie indziej.</p>
-              <p>⚠️ Uwaga: Niektórzy dostawcy mogą blokować żądania z przeglądarki (CORS). Jeśli wystąpi błąd CORS, rozważ użycie własnego lekkiego proxy (np. Cloudflare Worker) lub zrób forka i skonfiguruj domenę na allowliście.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="text-center text-xs text-zinc-500 mt-6">
-          Zbudowano dla GitHub Pages • React + Tailwind • multi‑provider ✨
-        </div>
-      </div>
-    </div>
-  );
-}
+    sendBtn.onclick = sendMessage;
+    userInput.addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
+  </script>
+</body>
+</html>
